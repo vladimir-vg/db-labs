@@ -1,0 +1,63 @@
+Have generated 300 000 rows.
+
+Before setting up any indexes:
+
+
+lab6=# EXPLAIN ANALYZE select count(*) from customers where age > 30 AND age < 40;
+ Finalize Aggregate  (cost=12182.03..12182.04 rows=1 width=8) (actual time=32.281..35.840 rows=1 loops=1)
+   ->  Gather  (cost=12181.81..12182.02 rows=2 width=8) (actual time=32.199..35.832 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         ->  Partial Aggregate  (cost=11181.81..11181.82 rows=1 width=8) (actual time=27.373..27.374 rows=1 loops=3)
+               ->  Parallel Seq Scan on customers  (cost=0.00..11142.00 rows=15925 width=0) (actual time=0.015..26.196 rows=12826 loops=3)
+                     Filter: ((age > 30) AND (age < 40))
+                     Rows Removed by Filter: 87174
+ Planning Time: 0.147 ms
+ Execution Time: 35.882 ms
+
+
+ lab6=# EXPLAIN ANALYZE select count(*) from customers where name = 'Amanda Aguilar';
+  Finalize Aggregate  (cost=11829.72..11829.73 rows=1 width=8) (actual time=26.866..30.767 rows=1 loops=1)
+    ->  Gather  (cost=11829.50..11829.72 rows=2 width=8) (actual time=26.782..30.759 rows=3 loops=1)
+          Workers Planned: 2
+          Workers Launched: 2
+          ->  Partial Aggregate  (cost=10829.50..10829.51 rows=1 width=8) (actual time=23.747..23.748 rows=1 loops=3)
+                ->  Parallel Seq Scan on customers  (cost=0.00..10829.50 rows=2 width=0) (actual time=16.231..23.738 rows=2 loops=3)
+                      Filter: (name = 'Amanda Aguilar'::text)
+                      Rows Removed by Filter: 99998
+  Planning Time: 0.070 ms
+  Execution Time: 30.801 ms
+
+
+We got about 30-35 milliseconds for each query.
+
+Now we create following indexes:
+
+CREATE INDEX age_btree ON customers USING btree (age);
+CREATE INDEX name_hash ON customers USING hash (name);
+
+Let's try to run same queries:
+
+lab6=# EXPLAIN ANALYZE select count(*) from customers where age > 30 AND age < 40;
+ Aggregate  (cost=10752.03..10752.04 rows=1 width=8) (actual time=27.996..27.997 rows=1 loops=1)
+   ->  Bitmap Heap Scan on customers  (cost=816.18..10656.48 rows=38220 width=0) (actual time=9.306..25.327 rows=38478 loops=1)
+         Recheck Cond: ((age > 30) AND (age < 40))
+         Heap Blocks: exact=9159
+         ->  Bitmap Index Scan on age_btree  (cost=0.00..806.62 rows=38220 width=0) (actual time=6.880..6.880 rows=38478 loops=1)
+               Index Cond: ((age > 30) AND (age < 40))
+ Planning Time: 0.438 ms
+ Execution Time: 28.046 ms
+
+
+
+lab6=# EXPLAIN ANALYZE select count(*) from customers where name = 'Amanda Aguilar';
+  Aggregate  (cost=19.84..19.85 rows=1 width=8) (actual time=0.060..0.061 rows=1 loops=1)
+    ->  Bitmap Heap Scan on customers  (cost=4.03..19.83 rows=4 width=0) (actual time=0.033..0.052 rows=6 loops=1)
+          Recheck Cond: (name = 'Amanda Aguilar'::text)
+          Heap Blocks: exact=6
+          ->  Bitmap Index Scan on name_hash  (cost=0.00..4.03 rows=4 width=0) (actual time=0.016..0.017 rows=6 loops=1)
+                Index Cond: (name = 'Amanda Aguilar'::text)
+  Planning Time: 0.119 ms
+  Execution Time: 0.106 ms
+
+We got about 20% boost for first query and about hundred times faster for second one.
